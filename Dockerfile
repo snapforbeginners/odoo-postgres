@@ -1,55 +1,42 @@
-FROM haskell:7.8
+FROM haskell:7.10
 
-# update packages
-RUN apt-get update
-RUN apt-get install -y git libpq-dev
+# update package repository
+RUN apt-get update && \
+    apt-get install -y libpq-dev
 RUN cabal update
 
-# put logs somewhere
-RUN mkdir /var/log/barebones
+# Make sure our app directory exists
+RUN mkdir -p /opt/pulsar
+
+# Set the base directory of the following RUN statements
+WORKDIR /opt/pulsar
+
+# Make sure log directories exist
+RUN mkdir -p /var/log/pulsar
+
+# Create Sandbox
+RUN cabal sandbox init
 
 # Install Dependencies into sandbox. Each command is cached by Docker
 # so we don't have to reinstall everything unless we make changes to 
 # our .cabal file.
-ADD ./odoo.cabal /opt/odoo/odoo.cabal
-
-### 1.0 dependencies
-RUN git clone https://github.com/snapframework/io-streams-haproxy.git /opt/deps/io-streams-haproxy
-RUN git clone https://github.com/snapframework/snap.git /opt/deps/snap
-RUN git clone https://github.com/snapframework/snap-core.git /opt/deps/snap-core
-RUN git clone https://github.com/snapframework/snap-server.git /opt/deps/snap-server
-RUN git clone https://github.com/snapframework/snap-loader-static.git /opt/deps/snap-loader-static
-RUN git clone https://github.com/snapframework/heist.git /opt/deps/heist
-RUN git clone https://github.com/mightybyte/snaplet-postgresql-simple.git /opt/deps/snaplet-postgres-simple
-RUN cd /opt/deps/snaplet-postgres-simple && git checkout 1.0
-
-# Create Sandbox and Add Source Deps
-RUN cd /opt/odoo &&\
-        cabal sandbox init &&\
-        cabal sandbox add-source /opt/deps/io-streams-haproxy &&\
-        cabal sandbox add-source /opt/deps/snap &&\
-        cabal sandbox add-source /opt/deps/snap-core &&\
-        cabal sandbox add-source /opt/deps/snap-server &&\
-        cabal sandbox add-source /opt/deps/snap-loader-static &&\
-        cabal sandbox add-source /opt/deps/heist &&\
-        cabal sandbox add-source /opt/deps/snaplet-postgres-simple
-
-### END 1.0 dependencies
-
-RUN cd /opt/odoo && cabal install --only-dependencies -j4
+COPY ./pulsar.cabal /opt/pulsar/pulsar.cabal
+RUN cabal install --only-dependencies -j4 --allow-newer
 
 # Add Application Code
-ADD ./src /opt/odoo/src
-# Install Application
-RUN cd /opt/odoo && cabal build
+COPY ./src /opt/pulsar/src
 
-# Add production assets and run application
+# Build Application
+RUN cabal build
 
-ADD ./snaplets /opt/odoo/snaplets
-ADD ./static /opt/odoo/static
-ADD ./.ghci /opt/odoo/.ghci
+# COPY assets and misc files into image
+COPY ./snaplets /opt/pulsar/snaplets
+COPY ./static /opt/pulsar/static
+COPY ./.ghci /opt/pulsar/.ghci
 
-WORKDIR /opt/odoo
-
-CMD ["/opt/odoo/dist/build/odoo/odoo","--access-log", "/var/log/barebones/access.log", "--error-log", "/var/log/barebones/error.log"]
+# By default, run our application when running a container based on
+# this image. Use command line flags to specify log directories.
+CMD ["/opt/pulsar/dist/build/pulsar/pulsar",\
+     "--access-log", "/var/log/pulsar/access.log",\
+     "--error-log", "/var/log/pulsar/error.log"]
 
